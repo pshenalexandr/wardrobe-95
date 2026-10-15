@@ -199,6 +199,13 @@ fieldset.w95 legend { padding: 0 4px; }
 }
 .item:hover .tag, .item:focus-visible .tag, .item.open .tag { opacity: 1; }
 
+/* lego figures: real 3D, drawn by lego.js into a canvas; the slot is as thin as the figure's side view */
+.item.lego { width: var(--shut, 34px); }
+.item.lego:hover, .item.lego:focus-visible, .item.lego.open { width: var(--open, 200px); }
+.item.lego .fig { position: absolute; left: 50%; top: 0; width: 240px; height: 420px; margin-left: -120px; pointer-events: none; }
+.item.lego .tag { top: auto; bottom: 0; }
+.viewer-fig { display: block; width: 360px; height: 630px; max-width: 100%; max-height: 70vh; object-fit: contain; margin: 0 auto; background: #e8e8e8; }
+
 .rack-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 4px 0; flex-wrap: wrap; }
 .status { display: flex; gap: 4px; margin-top: 6px; }
 .status div { padding: 2px 6px; font-size: 17px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -246,11 +253,12 @@ fieldset.w95 legend { padding: 0 4px; }
             <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview (Nano Banana Pro)</option>
           </select>
         </label>
-        <label style="flex:0 1 150px">Pixel size<br>
-          <select class="w95 bevel-in" id="pixels">
-            <option value="64">CHUNKY (64)</option>
-            <option value="96" selected>CRUNCHY (96)</option>
-            <option value="140">CRISP (140)</option>
+        <label style="flex:0 1 220px">Style<br>
+          <select class="w95 bevel-in" id="style">
+            <option value="lite" selected>PIXEL LITE (soft)</option>
+            <option value="crunchy">PIXEL CRUNCHY</option>
+            <option value="chunky">PIXEL CHUNKY</option>
+            <option value="lego">LEGO 3D VOXEL (+1 call)</option>
           </select>
         </label>
       </div>
@@ -346,12 +354,14 @@ fieldset.w95 legend { padding: 0 4px; }
       <div class="viewer-toggle">
         <button class="w95 bevel-out" data-v="px">Pixel</button>
         <button class="w95 bevel-out" data-v="raw">Full res</button>
+        <button class="w95 bevel-out" data-v="lego">Lego 3D</button>
         <button class="w95 bevel-out" data-v="garment">Garment</button>
         <button class="w95 bevel-out" data-v="model">Model</button>
         <button class="w95 bevel-out" data-v="outfit">Source</button>
         <button class="w95 bevel-out" id="dl">Save as…</button>
       </div>
       <img class="viewer-img bevel-in" id="viewerImg" alt="">
+      <canvas class="viewer-fig bevel-in hidden" id="viewerFig"></canvas>
     </div>
   </div>
 </div>
@@ -375,15 +385,15 @@ fieldset.w95 legend { padding: 0 4px; }
   const state = { person: null, outfits: [], looks: [] };
 
   // ---------- settings ----------
-  const keyEl = $('#apiKey'), modelEl = $('#model'), pxEl = $('#pixels');
+  const keyEl = $('#apiKey'), modelEl = $('#model'), styleEl = $('#style');
   keyEl.value = store.get('wardrobe.key') || '';
   modelEl.value = store.get('wardrobe.model') || modelEl.value;
-  pxEl.value = store.get('wardrobe.px') || pxEl.value;
+  styleEl.value = store.get('wardrobe.style') || styleEl.value;
   const prepEl = $('#prep'); prepEl.checked = store.get('wardrobe.prep') !== '0';
   prepEl.addEventListener('change', () => store.set('wardrobe.prep', prepEl.checked ? '1' : '0'));
   keyEl.addEventListener('input', () => { store.set('wardrobe.key', keyEl.value.trim()); refresh(); });
   modelEl.addEventListener('change', () => store.set('wardrobe.model', modelEl.value));
-  pxEl.addEventListener('change', () => store.set('wardrobe.px', pxEl.value));
+  styleEl.addEventListener('change', () => { store.set('wardrobe.style', styleEl.value); restyle(); });
 
   // ---------- image helpers ----------
   function loadImage(src) {
@@ -407,7 +417,10 @@ fieldset.w95 legend { padding: 0 4px; }
 
   // 90s-ify: downscale, ordered (Bayer) dither, crush to a few levels per channel, upscale with hard edges.
   const BAYER = [0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5].map(v => v / 16 - 0.5);
-  function pixelate(img, targetW = 96, levels = 5) {
+  // width in pixels, colour levels per channel, dither strength. LITE still reads as pixel art, but faces survive.
+  const PIXEL = { lite: [180, 12, 0.35], crunchy: [96, 5, 1], chunky: [64, 4, 1] };
+  function pixelate(img, style = 'lite') {
+    const [targetW, levels, dither] = PIXEL[style] || PIXEL.lite;
     const w = targetW, h = Math.round(img.height * targetW / img.width);
     const c = document.createElement('canvas'); c.width = w; c.height = h;
     const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
@@ -416,7 +429,7 @@ fieldset.w95 legend { padding: 0 4px; }
     const step = 255 / (levels - 1);
     let r = 0, gg = 0, b = 0, n = 0;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4, t = BAYER[(y & 3) * 4 + (x & 3)] * step;
+      const i = (y * w + x) * 4, t = BAYER[(y & 3) * 4 + (x & 3)] * step * dither;
       for (let k = 0; k < 3; k++) {
         // a little contrast boost before crushing, for that CRT punch
         let v = (p[i + k] - 128) * 1.12 + 128 + t;
@@ -425,7 +438,7 @@ fieldset.w95 legend { padding: 0 4px; }
       r += p[i]; gg += p[i + 1]; b += p[i + 2]; n++;
     }
     g.putImageData(d, 0, 0);
-    const scale = 6, big = document.createElement('canvas');
+    const scale = Math.max(3, Math.round(560 / w)), big = document.createElement('canvas');
     big.width = w * scale; big.height = h * scale;
     const bg = big.getContext('2d'); bg.imageSmoothingEnabled = false;
     bg.drawImage(c, 0, 0, big.width, big.height);
@@ -503,6 +516,12 @@ Keep from image 2, unchanged: the person's face and identity, hair, skin tone, b
 Take from image 1: only the clothing and accessories. Reproduce every item faithfully (cut, color, fabric, pattern, embroidery, buttons, trims) and fit it naturally to this person's body and pose, with realistic folds, drape and shadows. Replace all of the person's original clothing; nothing of their old outfit may remain visible. If the outfit includes a hat or shoes, put them on the person.
 The result must look like image 2 with different clothes on. Full body, head to feet.`,
   };
+
+  PROMPTS.sprite = `Redraw the person in this image as a clean pixel-art sprite that will be turned into a 3D LEGO-style voxel figure.
+Keep them instantly recognizable as THIS person in THIS outfit: same hair and facial hair, skin tone, hat, every garment with its colors and main patterns, belt, shoes, same body proportions.
+Front view, standing straight, arms held slightly away from the body, legs slightly apart, full body from head to feet, centered, filling most of the image height.
+Style: chunky pixel art about 64 pixels tall, flat solid colors, bold simple shapes, strong contrast between clothing parts, no black outlines, no gradients, no shading, no drop shadow.
+Background: one solid flat pure green (#00FF00) and nothing else. No floor, no text.`;
 
   const part = img => ({ inline_data: { mime_type: img.mime, data: img.b64 } });
 
@@ -586,8 +605,8 @@ The result must look like image 2 with different clothes on. Full body, head to 
   // ---------- go ----------
   $('#go').onclick = async () => {
     const online = !!keyEl.value.trim(), prep = online && $('#prep').checked;
-    const P = state.person, N = state.outfits.length;
-    const total = (online ? 2 * N : N) + (prep && !P.prepped ? 1 : 0);
+    const P = state.person, N = state.outfits.length, lego = styleEl.value === 'lego';
+    const total = (online ? (lego ? 3 : 2) * N : N) + (prep && !P.prepped ? 1 : 0);
     startLoading(total);
     let done = 0; const errors = [];
     const tick = () => setProgress(++done, total);
@@ -603,24 +622,29 @@ The result must look like image 2 with different clothes on. Full body, head to 
     const jobs = state.outfits.map((o, i) => async () => {
       const name = (o.name || `look_${i + 1}`).replace(/\.[^.]+$/, '');
       try {
-        let raw, garment = o.url;
+        let raw, sprite = null, garment = o.url;
         if (online) {
           say(`${name}: stripping clothes off the photo...`);
           const g = await banana(PROMPTS.garment, [o]); garment = g.url; tick();
           say(`${name}: dressing the model...`);
-          raw = (await banana(PROMPTS.tryOn, [g, model])).url; tick();
+          const r = await banana(PROMPTS.tryOn, [g, model]); raw = r.url; tick();
+          if (lego) {
+            say(`${name}: casting the brick figure...`);
+            try { sprite = (await banana(PROMPTS.sprite, [r])).url; } catch (e) { errors.push(`${name}: sprite failed, bricking the photo instead: ${e.message}`); }
+            tick();
+          }
         } else {
           await new Promise(r => setTimeout(r, 700 + i * 300)); // let the theatre breathe in demo mode
           raw = await collage(P, o); tick();
         }
-        const px = pixelate(await loadImage(raw), +pxEl.value);
-        state.looks.push({ raw, px: px.url, avg: px.avg, outfit: o.url, garment, model: model.url, name });
+        const rawImg = await loadImage(raw), px = pixelate(rawImg, styleEl.value);
+        state.looks.push({ raw, rawImg, sprite, px: px.url, avg: px.avg, outfit: o.url, garment, model: model.url, name });
       } catch (e) { errors.push(`${name}: ${e.message}`); }
     });
     // max 2 outfits in flight so we don't get rate-limited
     await runLimited(jobs, 2);
     stopLoading();
-    if (state.looks.length) { renderRack(); $('#rackWin').classList.add('on'); $('#rackWin').scrollIntoView({ behavior: 'smooth' }); }
+    if (state.looks.length) { await renderRack(); $('#rackWin').classList.add('on'); $('#rackWin').scrollIntoView({ behavior: 'smooth' }); }
     if (errors.length) error(errors.join('\n\n'));
   };
   async function runLimited(fns, n) {
@@ -638,8 +662,29 @@ The result must look like image 2 with different clothes on. Full body, head to 
     <rect x="1" y="10" width="4" height="2"/><rect x="37" y="10" width="4" height="2"/><rect x="1" y="12" width="40" height="2"/></g>
     <g fill="#9a9a9a"><rect x="17" y="6" width="8" height=".5"/><rect x="1" y="12" width="40" height=".6"/></g></svg>`;
 
-  function renderRack() {
+  // lego.js pulls three.js from a CDN, so only load it when someone actually asks for bricks
+  let legoMod;
+  const getLego = () => (legoMod ||= import('./lego.js').catch(e => { legoMod = null; throw new Error(`Could not load the 3D engine (${e.message})`); }));
+  const isOpen = it => it.matches(':hover, :focus-visible, .open');
+
+  async function voxelsFor(L) {
+    if (!L.vox) {
+      const { voxelize } = await getLego();
+      L.vox = voxelize(L.sprite ? await loadImage(L.sprite) : L.rawImg);
+    }
+    return L.vox;
+  }
+
+  // switching style re-renders what's already on the rack, no new API calls
+  async function restyle() {
+    if (!state.looks.length) return;
+    if (styleEl.value !== 'lego') state.looks.forEach(L => { L.px = pixelate(L.rawImg, styleEl.value).url; });
+    try { await renderRack(); } catch (e) { error(e.message); }
+  }
+
+  async function renderRack() {
     const box = $('#hangers'); box.innerHTML = '';
+    if (styleEl.value === 'lego') return renderLegoRack(box);
     state.looks.forEach((L, i) => {
       const it = document.createElement('div');
       it.className = 'item'; it.tabIndex = 0;
@@ -667,22 +712,52 @@ The result must look like image 2 with different clothes on. Full body, head to 
     });
   }
 
+  async function renderLegoRack(box) {
+    const { mount, CW } = await getLego();
+    for (const [i, L] of state.looks.entries()) {
+      const it = document.createElement('div');
+      it.className = 'item lego'; it.tabIndex = 0;
+      it.innerHTML = `<canvas class="fig" width="${CW}" height="420"></canvas><div class="tag"></div>`;
+      it.querySelector('.tag').textContent = `${L.name.toUpperCase().slice(0, 12)}.LEG`;
+      box.appendChild(it);
+      let m;
+      try { m = mount(it.querySelector('canvas'), await voxelsFor(L), () => it.classList.contains('back') ? 180 : isOpen(it) ? 0 : 90); }
+      catch (e) { it.remove(); error(`${L.name}: ${e.message}`); continue; }
+      it.style.setProperty('--open', `${Math.ceil(m.frontWidth) + 24}px`);
+      it.style.setProperty('--shut', `${Math.max(26, Math.ceil(m.sideWidth) + 6)}px`);
+      it.onclick = () => openViewer(i);
+      it.onkeydown = e => { if (e.key === 'Enter') openViewer(i); };
+      it.oncontextmenu = e => { e.preventDefault(); it.classList.toggle('back'); };
+      it.onmouseleave = () => it.classList.remove('back');
+    }
+  }
+
   // ---------- viewer ----------
   let vi = 0, vmode = 'px';
-  function openViewer(i) { vi = i; vmode = 'px'; paintViewer(); $('#viewer').classList.add('on'); }
-  function paintViewer() {
-    const L = state.looks[vi];
+  let viewerMount;
+  function openViewer(i) { vi = i; vmode = styleEl.value === 'lego' ? 'lego' : 'px'; paintViewer(); $('#viewer').classList.add('on'); }
+  async function paintViewer() {
+    const L = state.looks[vi], lego = vmode === 'lego';
+    $('#viewerImg').classList.toggle('hidden', lego); $('#viewerFig').classList.toggle('hidden', !lego);
+    viewerMount?.unmount(); viewerMount = null;
+    if (lego) {
+      // the old canvas may still be painted by a removed actor for one frame, so swap in a fresh one
+      const c = $('#viewerFig').cloneNode(); $('#viewerFig').replaceWith(c);
+      try { const { mount } = await getLego(); viewerMount = mount(c, await voxelsFor(L), () => null, { startYaw: 0, sway: false }); }
+      catch (e) { error(e.message); }
+    }
     $('#viewerImg').src = { raw: L.raw, garment: L.garment, model: L.model, outfit: L.outfit }[vmode] || L.px;
     $('#viewerTitle').textContent = `${L.name.toUpperCase()}_${vmode.toUpperCase()}.BMP`;
   }
   document.querySelectorAll('.viewer-toggle [data-v]').forEach(b => b.onclick = () => { vmode = b.dataset.v; paintViewer(); });
-  $('#viewerX').onclick = () => $('#viewer').classList.remove('on');
-  $('#viewer').addEventListener('click', e => { if (e.target.id === 'viewer') $('#viewer').classList.remove('on'); });
+  const closeViewer = () => { $('#viewer').classList.remove('on'); viewerMount?.unmount(); viewerMount = null; };
+  $('#viewerX').onclick = closeViewer;
+  $('#viewer').addEventListener('click', e => { if (e.target.id === 'viewer') closeViewer(); });
   $('#dl').onclick = () => {
-    const a = document.createElement('a'); a.href = $('#viewerImg').src;
-    a.download = `${state.looks[vi].name}_${vmode}.${vmode === 'px' ? 'png' : 'jpg'}`; a.click();
+    const a = document.createElement('a'); a.href = vmode === 'lego' ? $('#viewerFig').toDataURL('image/png') : $('#viewerImg').src;
+    a.download = `${state.looks[vi].name}_${vmode}.${vmode === 'px' || vmode === 'lego' ? 'png' : 'jpg'}`; a.click();
   };
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('#viewer').classList.remove('on'); $('#errModal').classList.remove('on'); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeViewer(); $('#errModal').classList.remove('on'); } });
 
   // ---------- clock ----------
   const tick = () => { $('#clock').textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); };
