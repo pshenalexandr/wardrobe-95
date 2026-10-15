@@ -205,7 +205,7 @@ fieldset.w95 legend { padding: 0 4px; }
 
 /* ---------- Viewer ---------- */
 .viewer-img { display: block; max-width: 100%; max-height: 70vh; margin: 0 auto; background: #fff; }
-.viewer-toggle { display: flex; gap: 6px; justify-content: center; margin-bottom: 10px; }
+.viewer-toggle { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 10px; }
 
 /* ---------- Taskbar ---------- */
 .taskbar { position: fixed; left: 0; right: 0; bottom: 0; height: 40px; background: var(--gray); border-top: 2px solid #fff; display: flex; align-items: center; gap: 6px; padding: 3px 4px; z-index: 40; }
@@ -254,6 +254,10 @@ fieldset.w95 legend { padding: 0 4px; }
           </select>
         </label>
       </div>
+      <label style="display:flex;gap:8px;align-items:center;margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="prep" checked style="width:18px;height:18px">
+        Prep the model first: cut them out of the background, straighten the pose if they're not standing (+1 call)
+      </label>
       <div class="hint">The key lives only in this browser (localStorage) and is sent only to generativelanguage.googleapis.com. It never touches the repo or any server of ours — we don't have one.</div>
     </fieldset>
 
@@ -304,7 +308,7 @@ fieldset.w95 legend { padding: 0 4px; }
       <div class="hangers" id="hangers"></div>
     </div>
     <div class="rack-foot">
-      <span>Hover = turn to face you. Click = open in a window. Right-click = see the back (the original outfit).</span>
+      <span>Hover = turn to face you. Click = open in a window. Right-click = see the back (the bare garment).</span>
       <button class="w95 bevel-out" id="again">Try more</button>
     </div>
   </div>
@@ -342,7 +346,9 @@ fieldset.w95 legend { padding: 0 4px; }
       <div class="viewer-toggle">
         <button class="w95 bevel-out" data-v="px">Pixel</button>
         <button class="w95 bevel-out" data-v="raw">Full res</button>
-        <button class="w95 bevel-out" data-v="outfit">Outfit</button>
+        <button class="w95 bevel-out" data-v="garment">Garment</button>
+        <button class="w95 bevel-out" data-v="model">Model</button>
+        <button class="w95 bevel-out" data-v="outfit">Source</button>
         <button class="w95 bevel-out" id="dl">Save as…</button>
       </div>
       <img class="viewer-img bevel-in" id="viewerImg" alt="">
@@ -373,6 +379,8 @@ fieldset.w95 legend { padding: 0 4px; }
   keyEl.value = store.get('wardrobe.key') || '';
   modelEl.value = store.get('wardrobe.model') || modelEl.value;
   pxEl.value = store.get('wardrobe.px') || pxEl.value;
+  const prepEl = $('#prep'); prepEl.checked = store.get('wardrobe.prep') !== '0';
+  prepEl.addEventListener('change', () => store.set('wardrobe.prep', prepEl.checked ? '1' : '0'));
   keyEl.addEventListener('input', () => { store.set('wardrobe.key', keyEl.value.trim()); refresh(); });
   modelEl.addEventListener('change', () => store.set('wardrobe.model', modelEl.value));
   pxEl.addEventListener('change', () => store.set('wardrobe.px', pxEl.value));
@@ -473,37 +481,56 @@ fieldset.w95 legend { padding: 0 4px; }
   };
 
   // ---------- Nano Banana ----------
-  const PROMPT = `You are a virtual fitting room.
-Image 1 is a photo of a person. Image 2 is a garment, outfit or costume.
-Generate a single new photo of THE SAME PERSON from image 1 wearing the outfit from image 2.
-Keep their face, hair, skin tone, body proportions and pose. Reproduce the outfit faithfully: colors, pattern, cut, details.
-Full body, head to feet, centered, facing the camera, plain flat light-grey studio background, even lighting, no text.`;
+  // Three steps instead of one. The one-shot "put person A into outfit photo B" collapses into the
+  // laziest edit: paste A's face onto B's photo. So the model never sees a dressed stranger next to the
+  // try-on task: the outfit is first stripped down to clothes only, and the try-on is an EDIT of the person photo.
+  const PROMPTS = {
+    person: `This photo shows a person. Produce a clean reference photo of THIS EXACT person for a virtual fitting room.
+- Identity must not change: same face, facial hair, hair, skin tone, body shape and proportions. Do not beautify or idealize.
+- Remove the background completely and replace it with a flat, seamless light-grey studio backdrop. Remove any other people and objects.
+- Pose: if the person is sitting, crouching, leaning, turned away, cropped or partly hidden, re-pose them into a neutral standing pose: facing the camera, standing straight, arms relaxed and slightly away from the body, feet slightly apart. If they are already standing roughly like that, keep their pose exactly as it is.
+- Show the full body from the top of the head to the feet, centered, with some empty margin around it.
+- Keep the clothes they are wearing now. Soft, even studio lighting. No text, no watermark.`,
 
-  async function tryOn(person, outfit) {
+    garment: `This is a fashion photo. Look ONLY at the clothing and accessories. Ignore the person wearing them: their face, hair, skin, body, pose, and the background are irrelevant.
+Produce a "ghost mannequin" e-commerce product shot of that complete outfit: every garment and accessory (for example hat, jacket, vest, shirt, tie or bow, belt and buckle, trousers or skirt, shoes) shown as if worn by an invisible body, front view, each item in its natural position from head to toe, on a plain white background.
+Reproduce every item exactly: cut, color, fabric, pattern, embroidery, buttons, trims and hardware.
+There must be NO person in the result: no face, no head, no skin, no hands, no visible mannequin. No text.`,
+
+    tryOn: `Image 1 shows a set of clothes on an invisible mannequin. Image 2 is a photo of a person.
+Task: dress the person from image 2 in the clothes from image 1. This is an EDIT of image 2, not a new picture.
+Keep from image 2, unchanged: the person's face and identity, hair, skin tone, body shape, their exact pose (arms, legs, hands, head angle), the camera angle and framing, the background and the lighting.
+Take from image 1: only the clothing and accessories. Reproduce every item faithfully (cut, color, fabric, pattern, embroidery, buttons, trims) and fit it naturally to this person's body and pose, with realistic folds, drape and shadows. Replace all of the person's original clothing; nothing of their old outfit may remain visible. If the outfit includes a hat or shoes, put them on the person.
+The result must look like image 2 with different clothes on. Full body, head to feet.`,
+  };
+
+  const part = img => ({ inline_data: { mime_type: img.mime, data: img.b64 } });
+
+  async function banana(prompt, imgs, tries = 2) {
     const key = keyEl.value.trim(), model = modelEl.value;
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
-        contents: [{ role: 'user', parts: [
-          { text: PROMPT },
-          { inline_data: { mime_type: person.mime, data: person.b64 } },
-          { inline_data: { mime_type: outfit.mime, data: outfit.b64 } },
-        ] }],
-        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        // images first, instruction last: Google's own multi-image examples are written this way
+        contents: [{ role: 'user', parts: [...imgs.map(part), { text: prompt }] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '2:3' } },
       }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
     const parts = json.candidates?.[0]?.content?.parts || [];
-    const part = parts.find(p => p.inlineData || p.inline_data);
-    if (!part) {
+    const hit = parts.find(p => p.inlineData || p.inline_data);
+    if (!hit) {
+      // the model sometimes answers with chatter instead of a picture; one more go usually fixes it
+      if (tries > 1) return banana(prompt, imgs, tries - 1);
       const why = json.candidates?.[0]?.finishReason || json.promptFeedback?.blockReason;
       const txt = parts.map(p => p.text).filter(Boolean).join(' ');
       throw new Error(`No image came back${why ? ` (${why})` : ''}. ${txt}`.trim());
     }
-    const d = part.inlineData || part.inline_data;
-    return `data:${d.mimeType || d.mime_type || 'image/png'};base64,${d.data}`;
+    const d = hit.inlineData || hit.inline_data;
+    const url = `data:${d.mimeType || d.mime_type || 'image/png'};base64,${d.data}`;
+    return { url, b64: d.data, mime: d.mimeType || d.mime_type || 'image/png' };
   }
 
   // No key? Honest cheap collage: outfit multiplied over the person's torso.
@@ -546,6 +573,11 @@ Full body, head to feet, centered, facing the camera, plain flat light-grey stud
     bar.innerHTML = '<i></i>'.repeat(Math.max(1, want));
     $('#loadMsg').textContent = `Please wait while Windows configures your outfit. (${done}/${total})`;
   }
+  function say(msg) {
+    const l = $('#log'); const d = document.createElement('div');
+    d.textContent = msg; d.style.color = '#ff0'; l.appendChild(d);
+    while (l.children.length > 6) l.firstChild.remove();
+  }
   function stopLoading() { clearInterval(logTimer); $('#loading').classList.remove('on'); }
 
   function error(msg) { $('#errMsg').textContent = msg; $('#errModal').classList.add('on'); }
@@ -553,20 +585,39 @@ Full body, head to feet, centered, facing the camera, plain flat light-grey stud
 
   // ---------- go ----------
   $('#go').onclick = async () => {
-    const total = state.outfits.length, online = !!keyEl.value.trim();
+    const online = !!keyEl.value.trim(), prep = online && $('#prep').checked;
+    const P = state.person, N = state.outfits.length;
+    const total = (online ? 2 * N : N) + (prep && !P.prepped ? 1 : 0);
     startLoading(total);
     let done = 0; const errors = [];
-    const jobs = state.outfits.map((o, i) => async () => {
-      // let the theatre breathe a little in demo mode
-      if (!online) await new Promise(r => setTimeout(r, 700 + i * 300));
+    const tick = () => setProgress(++done, total);
+
+    let model = P;
+    if (prep) {
       try {
-        const raw = online ? await tryOn(state.person, o) : await collage(state.person, o);
+        if (!P.prepped) { say('Prepping model: cutout + pose...'); P.prepped = await banana(PROMPTS.person, [P]); tick(); }
+        model = P.prepped;
+      } catch (e) { errors.push(`Model prep failed, using the original photo: ${e.message}`); }
+    }
+
+    const jobs = state.outfits.map((o, i) => async () => {
+      const name = (o.name || `look_${i + 1}`).replace(/\.[^.]+$/, '');
+      try {
+        let raw, garment = o.url;
+        if (online) {
+          say(`${name}: stripping clothes off the photo...`);
+          const g = await banana(PROMPTS.garment, [o]); garment = g.url; tick();
+          say(`${name}: dressing the model...`);
+          raw = (await banana(PROMPTS.tryOn, [g, model])).url; tick();
+        } else {
+          await new Promise(r => setTimeout(r, 700 + i * 300)); // let the theatre breathe in demo mode
+          raw = await collage(P, o); tick();
+        }
         const px = pixelate(await loadImage(raw), +pxEl.value);
-        state.looks.push({ raw, px: px.url, avg: px.avg, outfit: o.url, name: (o.name || `look_${i + 1}`).replace(/\.[^.]+$/, '') });
-      } catch (e) { errors.push(`${o.name || 'outfit ' + (i + 1)}: ${e.message}`); }
-      setProgress(++done, total);
+        state.looks.push({ raw, px: px.url, avg: px.avg, outfit: o.url, garment, model: model.url, name });
+      } catch (e) { errors.push(`${name}: ${e.message}`); }
     });
-    // max 2 requests in flight so we don't get rate-limited
+    // max 2 outfits in flight so we don't get rate-limited
     await runLimited(jobs, 2);
     stopLoading();
     if (state.looks.length) { renderRack(); $('#rackWin').classList.add('on'); $('#rackWin').scrollIntoView({ behavior: 'smooth' }); }
@@ -606,7 +657,7 @@ Full body, head to feet, centered, facing the camera, plain flat light-grey stud
         </div></div>
         <div class="tag"></div>`;
       it.querySelector('.front img').src = L.px;
-      it.querySelector('.back img').src = L.outfit;
+      it.querySelector('.back img').src = L.garment;
       it.querySelector('.tag').textContent = `${L.name.toUpperCase().slice(0, 12)}.BMP`;
       it.onclick = () => openViewer(i);
       it.onkeydown = e => { if (e.key === 'Enter') openViewer(i); };
@@ -621,7 +672,7 @@ Full body, head to feet, centered, facing the camera, plain flat light-grey stud
   function openViewer(i) { vi = i; vmode = 'px'; paintViewer(); $('#viewer').classList.add('on'); }
   function paintViewer() {
     const L = state.looks[vi];
-    $('#viewerImg').src = vmode === 'raw' ? L.raw : vmode === 'outfit' ? L.outfit : L.px;
+    $('#viewerImg').src = { raw: L.raw, garment: L.garment, model: L.model, outfit: L.outfit }[vmode] || L.px;
     $('#viewerTitle').textContent = `${L.name.toUpperCase()}_${vmode.toUpperCase()}.BMP`;
   }
   document.querySelectorAll('.viewer-toggle [data-v]').forEach(b => b.onclick = () => { vmode = b.dataset.v; paintViewer(); });

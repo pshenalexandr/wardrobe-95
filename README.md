@@ -10,6 +10,17 @@ Virtual fitting room, Windows 95 edition. One static `index.html`, no build, no 
 
 ## AI
 
+Three calls, not one. Asking "put person A into outfit photo B" in one go makes the model take the
+lazy route and paste A's face onto photo B. So:
+
+1. **Prep the model** (once per person, optional): cut out onto a grey backdrop, re-pose to a neutral stance only if they aren't standing already.
+2. **Strip the outfit** (per outfit): turn the outfit photo into a ghost-mannequin product shot. Clothes only, no person, no background.
+3. **Try on**: clothes image first, person image last, phrased as an *edit of the person photo* that keeps their pose and framing.
+
+The viewer (click a hanger) shows every stage: Pixel / Full res / Garment / Model / Source.
+The back of each hanger is the stripped garment.
+
+
 Uses Google's Gemini image model ("Nano Banana", `gemini-2.5-flash-image`, or Nano Banana Pro) straight from the browser.
 Paste your key in the page. It is stored in your browser's `localStorage` only and sent only to
 `generativelanguage.googleapis.com`. Nothing is stored in this repo.
