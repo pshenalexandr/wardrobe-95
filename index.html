@@ -200,11 +200,11 @@ fieldset.w95 legend { padding: 0 4px; }
 .item:hover .tag, .item:focus-visible .tag, .item.open .tag { opacity: 1; }
 
 /* lego figures: real 3D, drawn by lego.js into a canvas; the slot is as thin as the figure's side view */
-.item.lego { width: var(--shut, 34px); }
+.item.lego { width: var(--shut, 34px); height: 520px; }
 .item.lego:hover, .item.lego:focus-visible, .item.lego.open { width: var(--open, 200px); }
-.item.lego .fig { position: absolute; left: 50%; top: 0; width: 240px; height: 420px; margin-left: -120px; pointer-events: none; }
+.item.lego .fig { position: absolute; left: 50%; top: 0; width: 260px; height: 520px; margin-left: -130px; pointer-events: none; }
 .item.lego .tag { top: auto; bottom: 0; }
-.viewer-fig { display: block; width: 360px; height: 630px; max-width: 100%; max-height: 70vh; object-fit: contain; margin: 0 auto; background: #e8e8e8; }
+.viewer-fig { display: block; width: 390px; height: auto; max-width: 100%; max-height: 70vh; object-fit: contain; margin: 0 auto; background: #e8e8e8; }
 
 .rack-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 4px 0; flex-wrap: wrap; }
 .status { display: flex; gap: 4px; margin-top: 6px; }
@@ -249,16 +249,18 @@ fieldset.w95 legend { padding: 0 4px; }
         <label>Gemini API key<br><input class="w95 bevel-in" id="apiKey" type="password" autocomplete="off" placeholder="AIza…  (leave empty = demo collage mode)"></label>
         <label style="flex:0 1 260px">Model<br>
           <select class="w95 bevel-in" id="model">
-            <option value="gemini-2.5-flash-image">gemini-2.5-flash-image (Nano Banana)</option>
-            <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview (Nano Banana Pro)</option>
+            <option value="gemini-nano-banana-2.1" selected>Nano Banana 2.1 (newest, best faces)</option>
+            <option value="gemini-3-pro-image">Nano Banana Pro (gemini-3-pro-image)</option>
+            <option value="gemini-3.1-flash-image">Nano Banana 2 (gemini-3.1-flash-image)</option>
+            <option value="gemini-2.5-flash-image">Nano Banana 1 (gemini-2.5-flash-image, deprecated)</option>
           </select>
         </label>
         <label style="flex:0 1 220px">Style<br>
           <select class="w95 bevel-in" id="style">
-            <option value="lite" selected>PIXEL LITE (soft)</option>
+            <option value="lego" selected>LEGO 3D VOXEL (+1 call)</option>
+            <option value="lite">PIXEL LITE (soft)</option>
             <option value="crunchy">PIXEL CRUNCHY</option>
             <option value="chunky">PIXEL CHUNKY</option>
-            <option value="lego">LEGO 3D VOXEL (+1 call)</option>
           </select>
         </label>
       </div>
@@ -387,13 +389,14 @@ fieldset.w95 legend { padding: 0 4px; }
   // ---------- settings ----------
   const keyEl = $('#apiKey'), modelEl = $('#model'), styleEl = $('#style');
   keyEl.value = store.get('wardrobe.key') || '';
-  modelEl.value = store.get('wardrobe.model') || modelEl.value;
-  styleEl.value = store.get('wardrobe.style') || styleEl.value;
+  // a saved value only sticks if it's still on the menu
+  const restore = (el, k) => { const v = store.get(k); if (v && [...el.options].some(o => o.value === v)) el.value = v; };
+  restore(modelEl, 'wardrobe.model.v2'); restore(styleEl, 'wardrobe.style.v2');
   const prepEl = $('#prep'); prepEl.checked = store.get('wardrobe.prep') !== '0';
   prepEl.addEventListener('change', () => store.set('wardrobe.prep', prepEl.checked ? '1' : '0'));
   keyEl.addEventListener('input', () => { store.set('wardrobe.key', keyEl.value.trim()); refresh(); });
-  modelEl.addEventListener('change', () => store.set('wardrobe.model', modelEl.value));
-  styleEl.addEventListener('change', () => { store.set('wardrobe.style', styleEl.value); restyle(); });
+  modelEl.addEventListener('change', () => store.set('wardrobe.model.v2', modelEl.value));
+  styleEl.addEventListener('change', () => { store.set('wardrobe.style.v2', styleEl.value); restyle(); });
 
   // ---------- image helpers ----------
   function loadImage(src) {
@@ -517,10 +520,15 @@ Take from image 1: only the clothing and accessories. Reproduce every item faith
 The result must look like image 2 with different clothes on. Full body, head to feet.`,
   };
 
-  PROMPTS.sprite = `Redraw the person in this image as a clean pixel-art sprite that will be turned into a 3D LEGO-style voxel figure.
-Keep them instantly recognizable as THIS person in THIS outfit: same hair and facial hair, skin tone, hat, every garment with its colors and main patterns, belt, shoes, same body proportions.
-Front view, standing straight, arms held slightly away from the body, legs slightly apart, full body from head to feet, centered, filling most of the image height.
-Style: chunky pixel art about 64 pixels tall, flat solid colors, bold simple shapes, strong contrast between clothing parts, no black outlines, no gradients, no shading, no drop shadow.
+  // At ~96 bricks tall a realistic head is ~12 bricks: too few for a face. So the sprite uses toy proportions
+  // (big head, like a LEGO minifig or a Funko), which gives the face ~3x the bricks, and gets the face photo as a second reference.
+  PROMPTS.sprite = `Image 1 shows a person wearing an outfit. Image 2 is another photo of the same person: use it as the reference for their face.
+Redraw them as a clean pixel-art sprite that will be turned into a 3D LEGO-style voxel figure.
+Toy proportions: the head is big, about one quarter of the total height, so the face has room for detail.
+The face is the most important part and must be an unmistakable likeness of THIS person: same face shape, skin tone, eyebrows, eye shape and color, nose, mouth, facial hair shape and color, hairline, hairstyle and hair color, glasses or other distinctive features. Do not make it generic or cute; keep it them.
+Below the head, keep THIS outfit: every garment with its colors and main patterns, hat, belt, shoes.
+Front view, standing straight, arms held slightly away from the body, legs slightly apart, full body from the top of the head (or hat) to the feet, centered, filling most of the image height.
+Style: pixel art about 96 pixels tall, flat solid colors, bold shapes, strong contrast between parts, no black outlines around the body, no gradients, no drop shadow.
 Background: one solid flat pure green (#00FF00) and nothing else. No floor, no text.`;
 
   const part = img => ({ inline_data: { mime_type: img.mime, data: img.b64 } });
@@ -630,7 +638,7 @@ Background: one solid flat pure green (#00FF00) and nothing else. No floor, no t
           const r = await banana(PROMPTS.tryOn, [g, model]); raw = r.url; tick();
           if (lego) {
             say(`${name}: casting the brick figure...`);
-            try { sprite = (await banana(PROMPTS.sprite, [r])).url; } catch (e) { errors.push(`${name}: sprite failed, bricking the photo instead: ${e.message}`); }
+            try { sprite = (await banana(PROMPTS.sprite, [r, model])).url; } catch (e) { errors.push(`${name}: sprite failed, bricking the photo instead: ${e.message}`); }
             tick();
           }
         } else {
@@ -713,11 +721,11 @@ Background: one solid flat pure green (#00FF00) and nothing else. No floor, no t
   }
 
   async function renderLegoRack(box) {
-    const { mount, CW } = await getLego();
+    const { mount, CW, CH } = await getLego();
     for (const [i, L] of state.looks.entries()) {
       const it = document.createElement('div');
       it.className = 'item lego'; it.tabIndex = 0;
-      it.innerHTML = `<canvas class="fig" width="${CW}" height="420"></canvas><div class="tag"></div>`;
+      it.innerHTML = `<canvas class="fig" width="${CW}" height="${CH}"></canvas><div class="tag"></div>`;
       it.querySelector('.tag').textContent = `${L.name.toUpperCase().slice(0, 12)}.LEG`;
       box.appendChild(it);
       let m;

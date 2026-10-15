@@ -2,7 +2,7 @@
 //
 // How a 2D picture becomes a 3D body:
 //   1. Cut the person out (flood-fill the background in from the image border).
-//   2. Shrink the cutout to a coarse grid, about 64 bricks tall.
+//   2. Shrink the cutout to a coarse grid, about 96 bricks tall.
 //   3. Give every grid cell a thickness. Cells deep inside the silhouette (the torso) are thick,
 //      cells near the edge (arms, hat brim) are thin: thickness follows the distance to the outline.
 //      That "inflates" the flat sprite like a balloon, which is roughly how bodies are shaped.
@@ -11,8 +11,8 @@
 
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
-export const CW = 240, CH = 420; // every figure canvas is this size (CSS px)
-const GRID_H = 64;
+export const CW = 260, CH = 520; // every figure canvas is this size (CSS px)
+const GRID_H = 96; // tall enough that a big toy head gets ~20 bricks of face
 
 // ---------- 1-3: picture → voxel grid ----------
 export function voxelize(img, rows = GRID_H) {
@@ -66,10 +66,10 @@ export function voxelize(img, rows = GRID_H) {
     const k = gy * W + gx;
     if (t && n / t > 0.45) {
       occ[k] = 1;
-      // plastic look: a bit more saturation, a few colour levels
+      // plastic look: a bit more saturation, 12 levels per channel (enough for skin, eyes, beard)
       let R = r / n, G = gg / n, B = b / n; const L = (R + G + B) / 3;
       [R, G, B] = [R, G, B].map(v => Math.max(0, Math.min(255, L + (v - L) * 1.25)));
-      col.set([R, G, B].map(v => Math.round(v / 255 * 7) / 7), k * 3);
+      col.set([R, G, B].map(v => Math.round(v / 255 * 11) / 11), k * 3);
     }
   }
   keepLargest(occ, W, H);

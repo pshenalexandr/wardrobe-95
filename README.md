@@ -20,8 +20,9 @@ lazy route and paste A's face onto photo B. So:
 ## Styles
 
 - **PIXEL LITE / CRUNCHY / CHUNKY**: the try-on photo, downsampled and dithered. LITE keeps faces readable.
-- **LEGO 3D VOXEL**: one extra call asks Nano Banana for a flat pixel-art sprite of the dressed person on a green screen.
-  `lego.js` cuts it out, shrinks it to a ~64-brick-tall grid and inflates it into 3D: each column gets a thickness
+- **LEGO 3D VOXEL** (default): one extra call asks Nano Banana for a flat pixel-art sprite of the dressed person on a green screen.
+  The sprite uses toy proportions (big head) and gets the person photo as a face reference, so the face gets ~3x the bricks.
+  `lego.js` cuts it out, shrinks it to a ~96-brick-tall grid and inflates it into 3D: each column gets a thickness
   proportional to its distance from the outline, so the torso is thick and arms and hat brims are thin. Then it puts
   studs on top and hangs the figure on a voxel hanger. Rendered with three.js (loaded from jsDelivr only in this mode) at a deliberate 12 fps.
 
@@ -32,7 +33,7 @@ The viewer (click a hanger) shows every stage: Pixel / Full res / Garment / Mode
 The back of each hanger is the stripped garment.
 
 
-Uses Google's Gemini image model ("Nano Banana", `gemini-2.5-flash-image`, or Nano Banana Pro) straight from the browser.
+Uses Google's Gemini image models straight from the browser. Default: **Nano Banana 2.1** (`gemini-nano-banana-2.1`, GA Oct 2026), which beats Nano Banana Pro (`gemini-3-pro-image`) on Google's character-consistency benchmarks. Pro, Nano Banana 2 and the deprecated 2.5 model are in the dropdown.
 Paste your key in the page. It is stored in your browser's `localStorage` only and sent only to
 `generativelanguage.googleapis.com`. Nothing is stored in this repo.
 
