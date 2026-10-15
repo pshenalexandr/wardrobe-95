@@ -18,4 +18,5 @@ No key → demo mode: a deliberately bad collage, so you can see the rack withou
 
 ## Deploy
 
-Settings → Pages → Source: *Deploy from a branch* → `main` / `/ (root)`.
+Live at https://pshenalexandr.github.io/wardrobe-95/ — served from the `gh-pages` branch.
+To update: `git push origin main main:gh-pages` (or switch Settings → Pages to `main`).
